@@ -6,6 +6,8 @@
 
 Next.js is a minimalistic framework for server-rendered React applications.
 
+**NOTE! the README on the `master` branch might not match that of the [latest stable release](https://github.com/zeit/next.js/releases/latest)! **
+
 ## How to use
 
 Install it:
@@ -20,7 +22,7 @@ and add a script to your package.json like this:
 {
   "scripts": {
     "dev": "next"
-  }
+  } 
 }
 ```
 
@@ -29,8 +31,6 @@ After that, the file-system is the main API. Every `.js` file becomes a route th
 Populate `./pages/index.js` inside your project:
 
 ```jsx
-import React from 'react'
-
 export default () => (
   <div>Welcome to next.js!</div>
 )
@@ -52,9 +52,7 @@ To see how simple this is, check out the [sample app - nextgram](https://github.
 Every `import` you declare gets bundled and served with each page
 
 ```jsx
-import React from 'react'
 import cowsay from 'cowsay-browser'
-
 export default () => (
   <pre>{ cowsay.say({ text: 'hi there!' }) }</pre>
 )
@@ -69,7 +67,6 @@ We use [glamor](https://github.com/threepointone/glamor) to provide a great buil
 Glamor's [HowTo](https://github.com/threepointone/glamor/blob/master/docs/howto.md) shows converting various CSS use cases to Glamor. See Glamor's [API docs](https://github.com/threepointone/glamor/blob/master/docs/api.md) for more details.
 
 ```jsx
-import React from 'react'
 import css from 'next/css'
 
 export default () => (
@@ -93,12 +90,11 @@ const style = css({
 
 Create a folder called `static` in your project root directory. From your code you can then reference those files with `/static/` URLs, e.g.: `<img src="/static/file-name.jpg" />`.
 
-### `<head>` side effects
+### Populating `<head>`
 
 We expose a built-in component for appending elements to the `<head>` of the page.
 
 ```jsx
-import React from 'react'
 import Head from 'next/head'
 export default () => (
   <div>
@@ -111,7 +107,9 @@ export default () => (
 )
 ```
 
-### Component lifecycle
+_Note: The contents of `<head>` get cleared upon unmounting the component, so make sure each page completely defines what it needs in `<head>`, without making assumptions about what other pages added_
+
+### Fetching data and component lifecycle
 
 When you need state, lifecycle hooks or **initial data population** you can export a `React.Component`.
 
@@ -133,7 +131,7 @@ export default class extends React.Component {
 
 Notice that to load data when the page loads, we use `getInitialProps` which is an [`async`](https://zeit.co/blog/async-and-await) static method. It can asynchronously fetch anything that resolves to a JavaScript plain `Object`, which populates `props`.
 
-For the initial page load, `getInitialProps` will execute on the server only. `getInitialProps` will only be executed on the client when navigating to a different route via the `Link` component and the `props.url`.
+For the initial page load, `getInitialProps` will execute on the server only. `getInitialProps` will only be executed on the client when navigating to a different route via the `Link` component or invoking `props.url.*` methods like `pushTo`.
 
 `getInitialProps` receives a context object with the following properties:
 
@@ -151,7 +149,6 @@ Client-side transitions between routes are enabled via a `<Link>` component
 #### pages/index.js
 
 ```jsx
-import React from 'react'
 import Link from 'next/link'
 export default () => (
   <div>Click <Link href="/about"><a>here</a></Link> to read more</div>
@@ -161,7 +158,6 @@ export default () => (
 #### pages/about.js
 
 ```jsx
-import React from 'react'
 export default () => (
   <p>Welcome to About!</p>
 )
@@ -182,13 +178,59 @@ Each top-level component receives a `url` property with the following API:
 - `pushTo(url)` - performs a `pushState` call that renders the new `url`. This is equivalent to following a `<Link>`
 - `replaceTo(url)` - performs a `replaceState` call that renders the new `url`
 
-### Error handling
+### Prefetching Pages
+
+Next.js exposes a module that configures a `ServiceWorker` automatically to prefetch pages: `next/prefetch`. 
+
+Since Next.js server-renders your pages, this allows all the future interaction paths of your app to be instant. Effectively Next.js gives you the great initial download performance of a _website_, with the ahead-of-time download capabilities of an _app_. [Read more](https://zeit.co/blog/next#anticipation-is-the-key-to-performance). 
+
+#### Link prefetching
+
+You can substitute your usage of `<Link>` with the default export of `next/prefetch`. For example:
+
+```jsx
+import Link from 'next/prefetch'
+// example header component
+export default () => (
+  <nav>
+    <ul>
+      <li><Link href='/'><a>Home</a></Link></li>
+      <li><Link href='/about'><a>About</a></Link></li>
+      <li><Link href='/contact'><a>Contact</a></Link></li>
+    </ul>
+  </nav>
+)
+```
+
+When this higher-level `<Link>` component is first used, the `ServiceWorker` gets installed. To turn off prefetching on a per-`<Link>` basis, you can use the `prefetch` attribute:
+
+```jsx
+<Link href='/contact' prefetch={false}>Home</Link>
+```
+
+#### Imperative API
+
+Most needs are addressed by `<Link />`, but we also expose an imperative API for advanced usage:
+
+```jsx
+import { prefetch } from 'next/prefetch'
+export default ({ url }) => (
+  <a onClick={ () => setTimeout(() => url.pushTo('/dynamic'), 100) }>
+    A route transition will happen after 100ms
+  </a>
+  {
+    // but we can prefetch it!
+    prefetch('/dynamic')
+  }
+)
+```
+
+### Custom error handling
 
 404 or 500 errors are handled both client and server side by a default component `error.js`. If you wish to override it, define a `_error.js`:
 
 ```jsx
 import React from 'react'
-
 export default class Error extends React.Component {
   static getInitialProps ({ res, xhr }) {
     const statusCode = res ? res.statusCode : (xhr ? xhr.status : null)
@@ -201,8 +243,36 @@ export default class Error extends React.Component {
         this.props.statusCode
         ? `An error ${this.props.statusCode} occurred on server`
         : 'An error occurred on client'
-      ]</p>
+      }</p>
     )
+  }
+}
+```
+
+### Custom configuration
+
+For custom advanced behavior of Next.js, you can create a `next.config.js` in the root of your project directory (next to `pages/` and `package.json`). 
+
+Note: `next.config.js` is a regular Node.js module, not a JSON file. It gets used by the Next server and build phases, and not included in the browser build.
+
+```javascript
+// next.config.js
+module.exports = {
+  /* config options here */
+}
+```
+
+### Customizing webpack config
+
+In order to extend our usage of `webpack`, you can define a function that extends its config. 
+
+The following example shows how you can use [`react-svg-loader`](https://github.com/boopathi/react-svg-loader) to easily import any `.svg` file as a React component, without modification.
+
+```js
+module.exports = {
+  webpack: (cfg, { dev }) => {
+    cfg.module.rules.push({ test: /\.svg$/, loader: 'babel!react-svg' })
+    return cfg
   }
 }
 ```
@@ -268,7 +338,8 @@ No in that it enforces a _structure_ so that we can do more advanced things like
 - Automatic code splitting
 
 In addition, Next.js provides two built-in features that are critical for every single website:
-- Routing with lazy component loading: `<Link>` (by importing `next/link`)
+- Routing with lazy component loading: `
+>` (by importing `next/link`)
 - A way for components to alter `<head>`: `<Head>` (by importing `next/head`)
 
 If you want to create re-usable React components that you can embed in your Next.js app or other React applications, using `create-react-app` is a great idea. You can later `import` it and keep your codebase clean!
@@ -374,7 +445,7 @@ For this reason we want to promote a situation where users can share the cache f
 
 We are committed to providing a great uptime and levels of security for our CDN. Even so, we also **automatically fall back** if the CDN script fails to load [with a simple trick](http://www.hanselman.com/blog/CDNsFailButYourScriptsDontHaveToFallbackFromCDNToLocalJQuery.aspx).
 
-To turn the CDN off, just set `{ “next”: { “cdn”: false } }` in `package.json`.
+To turn the CDN off, just set `module.exports = { cdn: false }` in `next.config.js`.
 </details>
 
 <details>
@@ -390,16 +461,9 @@ As we were researching options for server-rendering React that didn’t involve 
 
 </details>
 
-## Future directions
+## Roadmap
 
-The following issues are currently being explored and input from the community is appreciated:
-
-- Support for pluggable renderers [[#20](https://github.com/zeit/next.js/issues/20)]
-- Style isolation through Shadow DOM or "full css support" [[#22](https://github.com/zeit/next.js/issues/22)]
-- Better JSX [[#22](https://github.com/zeit/next.js/issues/23)]
-- Programmatic API [[#291](https://github.com/zeit/next.js/issues/291)]
-- Custom babel config [[#26](https://github.com/zeit/next.js/issues/26)]
-- Custom webpack config [[#40](https://github.com/zeit/next.js/issues/40)]
+Our Roadmap towards 2.0.0 [is public](https://github.com/zeit/next.js/wiki/Roadmap#nextjs-200).
 
 ## Authors
 

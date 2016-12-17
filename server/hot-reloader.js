@@ -3,15 +3,17 @@ import webpackDevMiddleware from 'webpack-dev-middleware'
 import webpackHotMiddleware from 'webpack-hot-middleware'
 import isWindowsBash from 'is-windows-bash'
 import webpack from './build/webpack'
+import clean from './build/clean'
+import babel, { watch } from './build/babel'
 import read from './read'
 
 export default class HotReloader {
-  constructor (dir, dev = false) {
+  constructor (dir) {
     this.dir = dir
-    this.dev = dev
     this.middlewares = []
     this.webpackDevMiddleware = null
     this.webpackHotMiddleware = null
+    this.watcher = null
     this.initialized = false
     this.stats = null
     this.compilationErrors = null
@@ -33,13 +35,35 @@ export default class HotReloader {
   }
 
   async start () {
-    await this.prepareMiddlewares()
+    this.watch()
+
+    const [compiler] = await Promise.all([
+      webpack(this.dir, { dev: true }),
+      clean(this.dir)
+    ])
+
+    await Promise.all([
+      this.prepareMiddlewares(compiler),
+      babel(this.dir, { dev: true })
+    ])
+
     this.stats = await this.waitUntilValid()
   }
 
-  async prepareMiddlewares () {
-    const compiler = await webpack(this.dir, { hotReload: true, dev: this.dev })
+  async stop () {
+    if (this.watcher) this.watcher.close()
 
+    if (this.webpackDevMiddleware) {
+      return new Promise((resolve, reject) => {
+        this.webpackDevMiddleware.close((err) => {
+          if (err) reject(err)
+          resolve()
+        })
+      })
+    }
+  }
+
+  async prepareMiddlewares (compiler) {
     compiler.plugin('after-emit', (compilation, callback) => {
       const { assets } = compilation
 
@@ -162,6 +186,26 @@ export default class HotReloader {
 
   send (action, ...args) {
     this.webpackHotMiddleware.publish({ action, data: args })
+  }
+
+  watch () {
+    const onChange = (path) => {
+      babel(this.dir, { dev: true })
+      .then(() => {
+        const f = join(this.dir, '.next', 'dist', relative(this.dir, path))
+        delete require.cache[f]
+        this.send('hardReload')
+      })
+    }
+
+    this.watcher = watch(this.dir)
+    this.watcher
+    .on('add', onChange)
+    .on('change', onChange)
+    .on('unlink', onChange)
+    .on('error', (err) => {
+      console.error(err)
+    })
   }
 }
 

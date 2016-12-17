@@ -22,6 +22,8 @@ export default class WatchPagesPlugin {
       return join('bundles', relative(compiler.options.context, f))
     }
     const errorPageName = join('bundles', 'pages', '_error.js')
+    const errorPagePath = join(__dirname, '..', '..', '..', 'pages', '_error.js')
+    const hotMiddlewareClientPath = join(__dirname, '..', '..', '..', 'client/webpack-hot-middleware-client')
 
     compiler.plugin('watch-run', (watching, callback) => {
       Object.keys(compiler.fileTimestamps)
@@ -35,7 +37,7 @@ export default class WatchPagesPlugin {
 
         if (compiler.hasEntry(name)) return
 
-        const entries = ['next/dist/client/webpack-hot-middleware-client', f]
+        const entries = [hotMiddlewareClientPath, f]
         compiler.addEntry(entries, name)
       })
 
@@ -47,8 +49,8 @@ export default class WatchPagesPlugin {
 
         if (name === errorPageName) {
           compiler.addEntry([
-            'next/dist/client/webpack-hot-middleware-client',
-            join(__dirname, '..', '..', '..', 'pages', '_error.js')
+            hotMiddlewareClientPath,
+            errorPagePath
           ], name)
         }
       })
@@ -58,7 +60,9 @@ export default class WatchPagesPlugin {
   }
 
   isPageFile (f) {
-    return f.indexOf(this.dir) === 0 && extname(f) === '.js'
+    return f.indexOf(this.dir) === 0 &&
+      relative(this.dir, f) !== '_document.js' &&
+      extname(f) === '.js'
   }
 }
 

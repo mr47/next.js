@@ -9,14 +9,22 @@ import WatchPagesPlugin from './plugins/watch-pages-plugin'
 import WatchRemoveEventPlugin from './plugins/watch-remove-event-plugin'
 import DynamicEntryPlugin from './plugins/dynamic-entry-plugin'
 import DetachPlugin from './plugins/detach-plugin'
+import getConfig from '../config'
 
-export default async function createCompiler (dir, { hotReload = false, dev = false } = {}) {
+export default async function createCompiler (dir, { dev = false } = {}) {
   dir = resolve(dir)
 
-  const pages = await glob('pages/**/*.js', { cwd: dir })
+  const pages = await glob('pages/**/*.js', {
+    cwd: dir,
+    ignore: 'pages/_document.js'
+  })
 
-  const entry = {}
-  const defaultEntries = hotReload ? ['next/dist/client/webpack-hot-middleware-client'] : []
+  const entry = {
+    'main.js': dev ? require.resolve('../../client/next-dev') : require.resolve('../../client/next')
+  }
+
+  const defaultEntries = dev
+    ? [join(__dirname, '..', '..', 'client/webpack-hot-middleware-client')] : []
   for (const p of pages) {
     entry[join('bundles', p)] = defaultEntries.concat([`./${p}?entry`])
   }
@@ -49,19 +57,7 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
     })
   ]
 
-  if (!dev) {
-    plugins.push(
-      new webpack.DefinePlugin({
-        'process.env.NODE_ENV': JSON.stringify('production')
-      }),
-      new webpack.optimize.UglifyJsPlugin({
-        compress: { warnings: false },
-        sourceMap: false
-      })
-    )
-  }
-
-  if (hotReload) {
+  if (dev) {
     plugins.push(
       new webpack.optimize.OccurrenceOrderPlugin(),
       new webpack.HotModuleReplacementPlugin(),
@@ -73,12 +69,22 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
       new WatchPagesPlugin(dir),
       new FriendlyErrorsWebpackPlugin()
     )
+  } else {
+    plugins.push(
+      new webpack.DefinePlugin({
+        'process.env.NODE_ENV': JSON.stringify('production')
+      }),
+      new webpack.optimize.UglifyJsPlugin({
+        compress: { warnings: false },
+        sourceMap: false
+      })
+    )
   }
 
   const babelRuntimePath = require.resolve('babel-runtime/package')
   .replace(/[\\/]package\.json$/, '')
 
-  const loaders = (hotReload ? [{
+  const loaders = (dev ? [{
     test: /\.js(\?[^?]*)?$/,
     loader: 'hot-self-accept-loader',
     include: [
@@ -107,6 +113,7 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
     loader: 'babel',
     include: nextPagesDir,
     query: {
+      babelrc: false,
       sourceMaps: dev ? 'both' : false,
       plugins: [
         [
@@ -127,6 +134,7 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
       return /node_modules/.test(str) && str.indexOf(nextPagesDir) !== 0
     },
     query: {
+      babelrc: false,
       sourceMaps: dev ? 'both' : false,
       presets: ['es2015', 'react'],
       plugins: [
@@ -141,9 +149,12 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
             alias: {
               'babel-runtime': babelRuntimePath,
               react: require.resolve('react'),
+              'react-dom': require.resolve('react-dom'),
               'next/link': require.resolve('../../lib/link'),
+              'next/prefetch': require.resolve('../../lib/prefetch'),
               'next/css': require.resolve('../../lib/css'),
-              'next/head': require.resolve('../../lib/head')
+              'next/head': require.resolve('../../lib/head'),
+              'next/document': require.resolve('../../server/document')
             }
           }
         ]
@@ -156,14 +167,14 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
     [errorDebugPath, 'dist/pages/_error-debug.js']
   ])
 
-  return webpack({
+  let webpackConfig = {
     context: dir,
     entry,
     output: {
       path: join(dir, '.next'),
       filename: '[name]',
       libraryTarget: 'commonjs2',
-      publicPath: hotReload ? '/_webpack/' : null,
+      publicPath: dev ? '/_webpack/' : null,
       devtoolModuleFilenameTemplate ({ resourcePath }) {
         const hash = createHash('sha1')
         hash.update(Date.now() + '')
@@ -173,16 +184,6 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
         return `webpack:///${resourcePath}?${id}`
       }
     },
-    externals: [
-      'react',
-      'react-dom',
-      {
-        [require.resolve('react')]: 'react',
-        [require.resolve('../../lib/link')]: 'next/link',
-        [require.resolve('../../lib/css')]: 'next/css',
-        [require.resolve('../../lib/head')]: 'next/head'
-      }
-    ],
     resolve: {
       root: [
         nodeModulesDir,
@@ -206,5 +207,11 @@ export default async function createCompiler (dir, { hotReload = false, dev = fa
     customInterpolateName: function (url, name, opts) {
       return interpolateNames.get(this.resourcePath) || url
     }
-  })
+  }
+  const config = getConfig(dir)
+  if (config.webpack) {
+    console.log('> Using Webpack config function defined in next.config.js.')
+    webpackConfig = await config.webpack(webpackConfig, { dev })
+  }
+  return webpack(webpackConfig)
 }
