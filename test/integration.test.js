@@ -4,6 +4,7 @@
 
 import { join } from 'path'
 import next from '../dist/server/next'
+import pkg from '../package.json'
 
 const dir = join(__dirname, 'fixtures', 'basic')
 const app = next({
@@ -44,6 +45,12 @@ describe('integration tests', () => {
     expect(/<div class="css-\w+">This is red<\/div>/.test(html)).toBeTruthy()
   })
 
+  test('renders styled jsx', async () => {
+    const html = await render('/styled-jsx')
+    expect(html).toMatch(/<style id="__jsx-style-1401785258">p\[data-jsx="1401785258"] {color: blue }[^]+<\/style>/)
+    expect(html.includes('<div data-jsx="1401785258"><p data-jsx="1401785258">This is blue</p></div>')).toBeTruthy()
+  })
+
   test('renders properties populated asynchronously', async () => {
     const html = await render('/async-props')
     expect(html.includes('<p>Diego Milito</p>')).toBeTruthy()
@@ -61,8 +68,8 @@ describe('integration tests', () => {
 
   test('error 404', async () => {
     const html = await render('/non-existent')
-    expect(html).toMatch(/<h1 class=".+">404<\/h1>/)
-    expect(html).toMatch(/<h2 class=".+">This page could not be found\.<\/h2>/)
+    expect(html).toMatch(/<h1 data-jsx=".+">404<\/h1>/)
+    expect(html).toMatch(/<h2 data-jsx=".+">This page could not be found\.<\/h2>/)
   })
 
   test('finishes response', async () => {
@@ -74,6 +81,39 @@ describe('integration tests', () => {
     }
     const html = await app.renderToHTML({}, res, '/finish-response', {})
     expect(html).toBeFalsy()
+  })
+
+  describe('X-Powered-By header', () => {
+    test('set it by default', async () => {
+      const req = { url: '/stateless' }
+      const headers = {}
+      const res = {
+        setHeader (key, value) {
+          headers[key] = value
+        },
+        end () {}
+      }
+
+      await app.render(req, res, req.url)
+      expect(headers['X-Powered-By']).toEqual(`Next.js ${pkg.version}`)
+    })
+
+    test('do not set it when poweredByHeader==false', async () => {
+      const req = { url: '/stateless' }
+      const originalConfigValue = app.config.poweredByHeader
+      app.config.poweredByHeader = false
+      const res = {
+        setHeader (key, value) {
+          if (key === 'X-Powered-By') {
+            throw new Error('Should not set the X-Powered-By header')
+          }
+        },
+        end () {}
+      }
+
+      await app.render(req, res, req.url)
+      app.config.poweredByHeader = originalConfigValue
+    })
   })
 })
 
